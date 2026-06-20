@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { ViewHelper } from "three/examples/jsm/helpers/ViewHelper.js";
 
 interface IfcViewerProps {
   modelUrl: string;
@@ -22,6 +23,8 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const meshGroupRef = useRef<THREE.Group>(new THREE.Group());
   const animationRef = useRef<number>(0);
+  const viewHelperRef = useRef<ViewHelper | null>(null);
+  const hoverSphereRef = useRef<THREE.Mesh | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
@@ -30,7 +33,18 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
   const [measurePoints, setMeasurePoints] = useState<THREE.Vector3[]>([]);
   const [measureLines, setMeasureLines] = useState<THREE.Line[]>([]);
   const [measureSprites, setMeasureSprites] = useState<THREE.Sprite[]>([]);
+  const [measureStatus, setMeasureStatus] = useState("");
+  const [modelLoaded, setModelLoaded] = useState(false);
   const errorRef = useRef<string | null>(null);
+
+  // --- Collect meshes for raycaster ---
+  const getMeshes = useCallback((): THREE.Mesh[] => {
+    const meshes: THREE.Mesh[] = [];
+    meshGroupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh) meshes.push(child);
+    });
+    return meshes;
+  }, []);
 
   // --- Initialize Three.js Scene ---
   useEffect(() => {
@@ -40,18 +54,15 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     const w = container.clientWidth;
     const h = container.clientHeight;
 
-    // Scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1e293b); // slate-800
+    scene.background = new THREE.Color(0x1e293b);
     sceneRef.current = scene;
 
-    // Camera
     const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
     camera.position.set(8, 6, 12);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvasRef.current! });
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -59,7 +70,6 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
 
-    // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
@@ -68,42 +78,52 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     controls.target.set(0, 0, 0);
     controlsRef.current = controls;
 
+    // View Helper (View Cube)
+    const viewHelper = new ViewHelper(camera, renderer.domElement);
+    viewHelperRef.current = viewHelper;
+
     // Lights
     const ambient = new THREE.AmbientLight(0x404060, 0.5);
     scene.add(ambient);
-
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
     dirLight.position.set(5, 10, 7);
     dirLight.castShadow = true;
     scene.add(dirLight);
-
     const fillLight = new THREE.DirectionalLight(0x8888ff, 0.5);
     fillLight.position.set(-5, 0, 5);
     scene.add(fillLight);
-
     const backLight = new THREE.DirectionalLight(0xffaa88, 0.3);
     backLight.position.set(0, -5, -10);
     scene.add(backLight);
 
-    // Grid helper
+    // Grid
     const grid = new THREE.GridHelper(20, 20, 0x4a5568, 0x2d3748);
     scene.add(grid);
 
-    // Group for model
+    // Hover sphere for measure mode (hidden by default)
+    const sphereGeom = new THREE.SphereGeometry(0.08, 12, 12);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.7 });
+    const hoverSphere = new THREE.Mesh(sphereGeom, sphereMat);
+    hoverSphere.visible = false;
+    scene.add(hoverSphere);
+    hoverSphereRef.current = hoverSphere;
+
+    // Model group
     scene.add(meshGroupRef.current);
 
-    // --- Load Model ---
+    // Load model
     loadModel();
 
-    // --- Animation Loop ---
+    // Animation loop
     const animate = () => {
       animationRef.current = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
+      viewHelper.render(renderer);
     };
     animate();
 
-    // --- Resize ---
+    // Resize
     const handleResize = () => {
       const w2 = container.clientWidth;
       const h2 = container.clientHeight;
@@ -130,6 +150,7 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
       } else {
         await loadGltf();
       }
+      setModelLoaded(true);
     } catch (err) {
       errorRef.current = `Failed to load model: ${(err as Error).message}`;
       setLoading(false);
@@ -138,24 +159,19 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
 
   const loadIfc = async () => {
     setProgress(10);
-
-    // Fetch IFC file
     const response = await fetch(modelUrl);
     const buffer = await response.arrayBuffer();
     const uint8 = new Uint8Array(buffer);
     setProgress(40);
 
-    // Initialize web-ifc
     const IfcAPI = (await import("web-ifc")).IfcAPI;
     const ifcApi = new IfcAPI();
-    await ifcApi.Init();
+    await ifcApi.Init(() => "/web-ifc.wasm");
     setProgress(60);
 
-    // Open model
     const modelID = ifcApi.OpenModel(uint8, {});
     setProgress(75);
 
-    // Get all flat geometry
     const flatMeshes = ifcApi.LoadAllGeometry(modelID);
     const group = meshGroupRef.current;
     const total = flatMeshes.size();
@@ -168,7 +184,6 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
       for (let j = 0; j < numGeom; j++) {
         const placedGeom = placedGeometries.get(j);
         const ifcGeometry = ifcApi.GetGeometry(modelID, placedGeom.geometryExpressID);
-
         const pos = ifcApi.GetVertexArray(ifcGeometry.GetVertexData(), ifcGeometry.GetVertexDataSize());
         const idx = ifcApi.GetIndexArray(ifcGeometry.GetIndexData(), ifcGeometry.GetIndexDataSize());
 
@@ -178,28 +193,20 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         geometry.computeVertexNormals();
 
         const color = new THREE.Color(placedGeom.color.x, placedGeom.color.y, placedGeom.color.z);
-        const material = new THREE.MeshStandardMaterial({
-          color,
-          roughness: 0.6,
-          metalness: 0.1,
-        });
+        const material = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
         const threeMesh = new THREE.Mesh(geometry, material);
         threeMesh.castShadow = true;
         threeMesh.receiveShadow = true;
         group.add(threeMesh);
       }
-
       setProgress(75 + Math.floor((i / total) * 20));
     }
 
     ifcApi.CloseModel(modelID);
     ifcApi.Dispose();
     setProgress(100);
-
-    // Fit camera to model
-    fitCameraToGroup();
-
     setLoading(false);
+    fitCameraToGroup();
   };
 
   const loadGltf = async () => {
@@ -220,26 +227,22 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         setLoading(false);
         fitCameraToGroup();
       },
-      (xhr) => {
-        setProgress(30 + Math.floor((xhr.loaded / xhr.total) * 60));
-      },
+      (xhr) => setProgress(30 + Math.floor((xhr.loaded / xhr.total) * 60)),
       (err: unknown) => {
         errorRef.current = `Failed to load glTF: ${(err as Error).message}`;
         setLoading(false);
-      }
+      },
     );
   };
 
   const fitCameraToGroup = () => {
     const group = meshGroupRef.current;
     if (group.children.length === 0) return;
-
     const box = new THREE.Box3().setFromObject(group);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
     const distance = maxDim * 1.8;
-
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (camera && controls) {
@@ -249,10 +252,8 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     }
   };
 
-  const handleResetView = useCallback(() => {
-    fitCameraToGroup();
-  }, []);
-
+  // --- Toolbar Handlers ---
+  const handleResetView = useCallback(() => fitCameraToGroup(), []);
   const handleScreenshot = useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
@@ -281,18 +282,23 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
   const handleMeasure = useCallback(() => {
     setMeasureMode((prev) => {
       if (prev) {
-        // Exiting measure mode — clear points
+        // Exiting — clear hover & status
+        if (hoverSphereRef.current) hoverSphereRef.current.visible = false;
         setMeasurePoints([]);
+        setMeasureStatus("");
+        document.body.style.cursor = "default";
+      } else {
+        setMeasureStatus("Click first point on the model");
+        document.body.style.cursor = "crosshair";
       }
       return !prev;
     });
   }, []);
 
-  // Raycaster for measurement clicks
-  const handleCanvasClick = useCallback(
+  // --- Mouse move (hover indicator for measure) ---
+  const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!measureMode) return;
-
+      if (!measureMode || !modelLoaded) return;
       const canvas = canvasRef.current;
       const camera = cameraRef.current;
       if (!canvas || !camera) return;
@@ -303,12 +309,36 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
 
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+      const meshes = getMeshes();
+      const intersects = raycaster.intersectObjects(meshes);
 
-      const meshes: THREE.Mesh[] = [];
-      meshGroupRef.current.traverse((child) => {
-        if (child instanceof THREE.Mesh) meshes.push(child);
-      });
+      if (hoverSphereRef.current) {
+        if (intersects.length > 0) {
+          hoverSphereRef.current.position.copy(intersects[0]!.point);
+          hoverSphereRef.current.visible = true;
+        } else {
+          hoverSphereRef.current.visible = false;
+        }
+      }
+    },
+    [measureMode, modelLoaded, getMeshes],
+  );
 
+  // --- Click for measure ---
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!measureMode || !modelLoaded) return;
+      const canvas = canvasRef.current;
+      const camera = cameraRef.current;
+      if (!canvas || !camera) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+      const meshes = getMeshes();
       const intersects = raycaster.intersectObjects(meshes);
       if (intersects.length === 0) return;
 
@@ -316,21 +346,38 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
 
       setMeasurePoints((prev) => {
         const newPoints = [...prev, point];
+        if (newPoints.length === 1) {
+          setMeasureStatus("Click second point");
+          // Place a temporary marker at the first point
+          placeMarker(point, 0x00ff88);
+        }
         if (newPoints.length === 2) {
           drawMeasurement(newPoints[0]!, newPoints[1]!);
+          setMeasureStatus(`Distance: ${newPoints[0]!.distanceTo(newPoints[1]!).toFixed(2)} m`);
+          document.body.style.cursor = "default";
+          if (hoverSphereRef.current) hoverSphereRef.current.visible = false;
           return [];
         }
         return newPoints;
       });
     },
-    [measureMode]
+    [measureMode, modelLoaded, getMeshes],
   );
+
+  const placeMarker = (point: THREE.Vector3, color: number) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const sphereGeom = new THREE.SphereGeometry(0.1, 12, 12);
+    const sphereMat = new THREE.MeshBasicMaterial({ color });
+    const sphere = new THREE.Mesh(sphereGeom, sphereMat);
+    sphere.position.copy(point);
+    scene.add(sphere);
+  };
 
   const drawMeasurement = (p1: THREE.Vector3, p2: THREE.Vector3) => {
     const scene = sceneRef.current;
     if (!scene) return;
 
-    // Line
     const points = [p1, p2];
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({ color: 0xff4444, linewidth: 2 });
@@ -341,14 +388,13 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     // Sphere markers
     const sphereMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
     const sphereGeom = new THREE.SphereGeometry(0.1, 8, 8);
-    const s1 = new THREE.Mesh(sphereGeom, sphereMat);
-    s1.position.copy(p1);
-    const s2 = new THREE.Mesh(sphereGeom, sphereMat);
-    s2.position.copy(p2);
-    scene.add(s1);
-    scene.add(s2);
+    [p1, p2].forEach((p) => {
+      const s = new THREE.Mesh(sphereGeom, sphereMat);
+      s.position.copy(p);
+      scene.add(s);
+    });
 
-    // Distance text sprite
+    // Distance label
     const dist = p1.distanceTo(p2);
     const text = `${dist.toFixed(2)} m`;
     const sprite = makeTextSprite(text);
@@ -365,10 +411,11 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     canvas.height = 64;
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.roundRect?.(0, 0, 256, 64, 8) ?? ctx.fillRect(0, 0, 256, 64);
-    ctx.fillRect(10, 10, 236, 44);
+    ctx.beginPath();
+    ctx.roundRect?.(10, 10, 236, 44, 8);
+    ctx.fill();
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 24px monospace";
+    ctx.font = "bold 22px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 128, 32);
@@ -388,34 +435,29 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     measureSprites.forEach((s) => scene.remove(s));
     setMeasureLines([]);
     setMeasureSprites([]);
+    setMeasurePoints([]);
+    setMeasureStatus("");
   }, [measureLines, measureSprites]);
 
   const handleReportIssue = useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     const screenshot = renderer.domElement.toDataURL("image/png");
-    const params = new URLSearchParams({
-      panel_id: panelId,
-      panel_name: panelName,
-      screenshot,
-    });
+    const params = new URLSearchParams({ panel_id: panelId, panel_name: panelName, screenshot });
     window.open(`/issues/new?${params.toString()}`, "_blank");
   }, [panelId, panelName]);
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden">
-      {/* Canvas */}
       <canvas
         ref={canvasRef}
         onClick={handleCanvasClick}
-        className="h-full w-full cursor-grab active:cursor-grabbing"
+        onMouseMove={handleMouseMove}
+        className={`h-full w-full ${measureMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       />
 
       {/* Back button */}
-      <button
-        onClick={onBack}
-        className="absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-lg bg-black/50 px-3 py-2 text-sm text-white backdrop-blur transition hover:bg-black/70"
-      >
+      <button onClick={onBack} className="absolute left-4 top-4 z-10 flex items-center gap-1.5 rounded-lg bg-black/50 px-3 py-2 text-sm text-white backdrop-blur transition hover:bg-black/70">
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
@@ -427,14 +469,18 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         <p className="truncate font-medium">{panelName}</p>
       </div>
 
+      {/* Measure status */}
+      {measureStatus && (
+        <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-lg bg-black/60 px-4 py-2 text-sm text-white backdrop-blur">
+          {measureStatus}
+        </div>
+      )}
+
       {/* Loading overlay */}
       {loading && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-900/80">
           <div className="h-2 w-64 overflow-hidden rounded-full bg-slate-700">
-            <div
-              className="h-full rounded-full bg-blue-500 transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
+            <div className="h-full rounded-full bg-blue-500 transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
           <p className="mt-3 text-sm text-slate-400">
             {progress < 30 ? "Downloading model..." : progress < 60 ? "Parsing IFC..." : "Building scene..."}
@@ -446,9 +492,7 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/80">
           <div className="rounded-xl bg-red-900/80 p-6 text-center">
             <p className="text-sm text-red-200">{errorRef.current}</p>
-            <button onClick={onBack} className="mt-4 rounded-lg bg-white/20 px-4 py-2 text-sm text-white">
-              Go Back
-            </button>
+            <button onClick={onBack} className="mt-4 rounded-lg bg-white/20 px-4 py-2 text-sm text-white">Go Back</button>
           </div>
         </div>
       )}
@@ -460,9 +504,7 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         <ToolButton icon="📷" label="Screenshot" onClick={handleScreenshot} />
         <div className="mx-1 h-6 w-px bg-white/20" />
         <ToolButton icon={measureMode ? "✕" : "📏"} label={measureMode ? "Stop" : "Measure"} onClick={handleMeasure} active={measureMode} />
-        {measureLines.length > 0 && (
-          <ToolButton icon="🗑" label="Clear" onClick={clearMeasurements} />
-        )}
+        {measureLines.length > 0 && <ToolButton icon="🗑" label="Clear" onClick={clearMeasurements} />}
         <div className="mx-1 h-6 w-px bg-white/20" />
         <ToolButton icon="🐛" label="Report" onClick={handleReportIssue} />
       </div>
@@ -471,24 +513,16 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
 }
 
 function ToolButton({
-  icon,
-  label,
-  onClick,
-  active,
+  icon, label, onClick, active,
 }: {
-  icon: string;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
+  icon: string; label: string; onClick: () => void; active?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       title={label}
       className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition active:scale-95 ${
-        active
-          ? "bg-blue-600 text-white"
-          : "text-white/80 hover:bg-white/10 hover:text-white"
+        active ? "bg-blue-600 text-white" : "text-white/80 hover:bg-white/10 hover:text-white"
       }`}
     >
       <span className="text-sm">{icon}</span>
