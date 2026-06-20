@@ -36,11 +36,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Use service_role key for storage + DB operations (bypasses RLS)
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+  }
+
+  const { createClient: adminCreate } = await import("@supabase/supabase-js");
+  const adminSupabase = adminCreate(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey,
+  );
+
   // Upload to Supabase Storage
   const storagePath = `${panelId}/${file.name}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  const { data: uploadData, error: uploadError } = await supabase.storage
+  const { error: uploadError } = await adminSupabase.storage
     .from("model_files")
     .upload(storagePath, buffer, {
       contentType: file.type || "application/octet-stream",
@@ -52,12 +64,12 @@ export async function POST(request: NextRequest) {
   }
 
   // Get public URL
-  const { data: publicUrlData } = supabase.storage
+  const { data: publicUrlData } = adminSupabase.storage
     .from("model_files")
     .getPublicUrl(storagePath);
 
-  // Create model_files record
-  const { data: modelRecord, error: dbError } = await supabase
+  // Create model_files record (bypass RLS with service_role)
+  const { data: modelRecord, error: dbError } = await adminSupabase
     .from("model_files")
     .insert({
       panel_id: panelId,

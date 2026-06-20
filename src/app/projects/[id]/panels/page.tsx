@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/features/auth/auth-context";
 import AppHeader from "@/components/app-header";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 interface Panel {
@@ -42,6 +42,15 @@ export default function ProjectPanelsPage() {
   const [newType, setNewType] = useState("Wall Panel");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Bulk upload
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{
+    summary: { total: number; uploaded: number; no_match: number; errors: number; skipped: number };
+    results: { file: string; status: string; message: string }[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchPanels = async () => {
     const res = await fetch(`/api/projects/${projectId}/panels`);
@@ -88,6 +97,41 @@ export default function ProjectPanelsPage() {
     setSaving(false);
   };
 
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setBulkResult(null);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(`/api/projects/${projectId}/bulk-upload`, {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (data.error) {
+      setError(data.error);
+    } else {
+      setBulkResult(data);
+      // Refresh panel list to update model counts
+      fetchPanels();
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const STATUS_ICON: Record<string, string> = {
+    uploaded: "✅",
+    no_match: "⚠️",
+    error: "❌",
+    skipped: "⏭️",
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -119,15 +163,26 @@ export default function ProjectPanelsPage() {
               <h1 className="text-2xl font-bold text-gray-900">Panels</h1>
               <p className="text-sm text-gray-500">{panels.length} panel{panels.length !== 1 ? "s" : ""}</p>
             </div>
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 active:scale-[0.98]"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Panel
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowBulkModal(true)}
+                className="flex items-center gap-2 rounded-lg border border-blue-200 px-4 py-2.5 text-sm font-medium text-blue-700 transition hover:bg-blue-50 active:scale-[0.98]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Bulk Upload ZIP
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 active:scale-[0.98]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Panel
+              </button>
+            </div>
           </div>
         </div>
 
@@ -234,6 +289,93 @@ export default function ProjectPanelsPage() {
                 className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
               >
                 {saving ? "Adding..." : "Add Panel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Upload Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Bulk Upload ZIP</h2>
+              <button onClick={() => { setShowBulkModal(false); setBulkResult(null); }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <p className="mb-4 text-sm text-gray-600">
+              Upload a ZIP file containing IFC/glTF/glb files. Each file will be matched to a panel by filename.
+            </p>
+
+            {!bulkResult && (
+              <div className="rounded-xl border-2 border-dashed border-gray-200 p-8 text-center">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".zip"
+                  onChange={handleBulkUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {uploading ? "Processing ZIP..." : "Select ZIP File"}
+                </button>
+                {uploading && (
+                  <p className="mt-3 text-sm text-gray-500">
+                    Extracting and uploading files...
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Result Report */}
+            {bulkResult && (
+              <div>
+                <div className="mb-3 grid grid-cols-4 gap-2 text-center text-xs">
+                  <div className="rounded-lg bg-green-50 p-2">
+                    <p className="text-lg font-bold text-green-700">{bulkResult.summary.uploaded}</p>
+                    <p className="text-green-600">Uploaded</p>
+                  </div>
+                  <div className="rounded-lg bg-yellow-50 p-2">
+                    <p className="text-lg font-bold text-yellow-700">{bulkResult.summary.no_match}</p>
+                    <p className="text-yellow-600">No Match</p>
+                  </div>
+                  <div className="rounded-lg bg-red-50 p-2">
+                    <p className="text-lg font-bold text-red-700">{bulkResult.summary.errors}</p>
+                    <p className="text-red-600">Errors</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-2">
+                    <p className="text-lg font-bold text-gray-700">{bulkResult.summary.skipped}</p>
+                    <p className="text-gray-600">Skipped</p>
+                  </div>
+                </div>
+
+                <div className="max-h-48 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-100">
+                  {bulkResult.results.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2 text-xs">
+                      <span>{STATUS_ICON[r.status] ?? "❓"}</span>
+                      <span className="flex-1 truncate text-gray-700">{r.file}</span>
+                      <span className="text-gray-400">{r.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center justify-end">
+              <button
+                onClick={() => { setShowBulkModal(false); setBulkResult(null); }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+              >
+                {bulkResult ? "Done" : "Cancel"}
               </button>
             </div>
           </div>
