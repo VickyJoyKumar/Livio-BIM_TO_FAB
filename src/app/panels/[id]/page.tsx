@@ -281,6 +281,12 @@ export default function PanelDetailPage() {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <a
+                      href={`/viewer/${panelId}`}
+                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+                    >
+                      View 3D
+                    </a>
+                    <a
                       href={model.file_url}
                       target="_blank"
                       rel="noopener noreferrer"
