@@ -53,6 +53,11 @@ export interface ProjectRow {
   name: string;
   description: string | null;
   address: string | null;
+  client_name: string | null;
+  project_number: string | null;
+  due_date: string | null;
+  square_footage: number | null;
+  custom_fields: Record<string, unknown>;
   status: "active" | "completed" | "archived";
   created_by: string; // FK → users.id
   created_at: string;

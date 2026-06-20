@@ -79,11 +79,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const adminSupabase = createClient();
-
-  // We need to use the admin API directly via fetch
+  // Send invite via Supabase Auth invite endpoint
   const response = await fetch(
-    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users`,
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/invite`,
     {
       method: "POST",
       headers: {
@@ -93,10 +91,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         email,
-        password: null, // passwordless invite — user signs up with Google
-        email_confirm: true,
-        user_metadata: { role },
-        // options: { data: { role } } — for invite only
+        data: { role }, // role metadata — read by handle_new_user trigger
       }),
     },
   );
