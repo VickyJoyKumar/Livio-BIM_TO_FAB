@@ -50,6 +50,7 @@ export default function ProjectDetailPage() {
   const [archiving, setArchiving] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [panelsCount, setPanelsCount] = useState(0);
 
   // Edit form state
   const [editForm, setEditForm] = useState({
@@ -86,6 +87,14 @@ export default function ProjectDetailPage() {
         setMessage({ type: "error", text: "Failed to load project" });
         setLoading(false);
       });
+
+    // Fetch panel count
+    fetch(`/api/projects/${projectId}/panels`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setPanelsCount(data.length);
+      })
+      .catch(() => {});
   }, [projectId]);
 
   const handleSave = async () => {
@@ -338,11 +347,14 @@ export default function ProjectDetailPage() {
           <div className="mt-8 space-y-3">
             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Project Features</h3>
             <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => router.push(`/projects/${project.id}/panels`)}
+                className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-center text-sm font-medium text-blue-700 transition hover:bg-blue-100 hover:shadow-sm"
+              >
+                🧩 Panels ({panelsCount})
+              </button>
               <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
-                🧩 Panels (Phase 04)
-              </div>
-              <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
-                📦 Models (Phase 04)
+                📦 Models
               </div>
               <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
                 📸 QR Scanner (Phase 05)
