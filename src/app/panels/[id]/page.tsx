@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/features/auth/auth-context";
 import AppHeader from "@/components/app-header";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "@/lib/format-date";
 
@@ -56,6 +56,8 @@ export default function PanelDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
+  const [qrImgSrc, setQrImgSrc] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
 
   const fetchPanel = async () => {
     const res = await fetch(`/api/panels/${panelId}`);
@@ -125,6 +127,27 @@ export default function PanelDetailPage() {
     }
   };
 
+  const generateQrCode = useCallback(async () => {
+    if (!panel?.qr_code) return;
+    setQrLoading(true);
+    try {
+      const QRCode = (await import("qrcode")).default;
+      // Use the origin of the current page for the URL
+      const baseUrl = window.location.origin;
+      // QR encodes a string that the scanner reads — encode the panel lookup URL
+      const url = `${baseUrl}/api/qr/lookup?code=${encodeURIComponent(panel.qr_code!)}`;
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 400,
+        margin: 2,
+        color: { dark: "#1e293b", light: "#ffffff" },
+      });
+      setQrImgSrc(dataUrl);
+    } catch (err) {
+      setError("Failed to generate QR code");
+    }
+    setQrLoading(false);
+  }, [panel]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -179,9 +202,28 @@ export default function PanelDetailPage() {
 
           <div className="grid grid-cols-2 gap-3 text-sm">
             {panel.qr_code && (
-              <div>
+              <div className="col-span-2 sm:col-span-1">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">QR Code</p>
                 <p className="mt-0.5 font-mono text-xs text-gray-700 break-all">{panel.qr_code}</p>
+                <button
+                  onClick={generateQrCode}
+                  disabled={qrLoading}
+                  className="mt-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {qrLoading ? "Generating..." : "Print QR Code"}
+                </button>
+                {qrImgSrc && (
+                  <div className="mt-2">
+                    <img src={qrImgSrc} alt="QR Code" className="w-32 h-32 rounded-lg border border-gray-200" />
+                    <a
+                      href={qrImgSrc}
+                      download={`qr-${panel.name}.png`}
+                      className="mt-1 inline-block text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      Download PNG
+                    </a>
+                  </div>
+                )}
               </div>
             )}
             <div>

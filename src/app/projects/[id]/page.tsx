@@ -356,9 +356,12 @@ export default function ProjectDetailPage() {
               <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
                 📦 Models
               </div>
-              <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
-                📸 QR Scanner (Phase 05)
-              </div>
+              <button
+                onClick={() => router.push("/scanner")}
+                className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-center text-sm font-medium text-blue-700 transition hover:bg-blue-100 hover:shadow-sm"
+              >
+                📸 Scan QR Code
+              </button>
               <div className="rounded-xl border border-dashed border-gray-200 bg-white p-4 text-center text-sm text-gray-400">
                 ⚠️ Issues (Phase 09)
               </div>
