@@ -3,10 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ panelId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const supabase = await createClient();
-  const { panelId } = await params;
+  const { id: panelId } = await params;
 
   const {
     data: { user },
@@ -30,10 +30,10 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ panelId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const supabase = await createClient();
-  const { panelId } = await params;
+  const { id: panelId } = await params;
 
   const {
     data: { user },
