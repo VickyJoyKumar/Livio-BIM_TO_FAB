@@ -67,7 +67,7 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     rendererRef.current = renderer;
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -100,6 +100,14 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     const grid = new THREE.GridHelper(20, 20, 0x4a5568, 0x2d3748);
     scene.add(grid);
 
+    // Debug: add a visible test cube to confirm the scene renders
+    const testCube = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0xff6600 }),
+    );
+    testCube.position.set(0, 2, 0);
+    scene.add(testCube);
+
     // Hover sphere for measure mode (hidden by default)
     const sphereGeom = new THREE.SphereGeometry(0.08, 12, 12);
     const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.7 });
@@ -119,7 +127,6 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
       animationRef.current = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
-      viewHelper.render(renderer);
     };
     animate();
 
@@ -507,6 +514,8 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         {measureLines.length > 0 && <ToolButton icon="🗑" label="Clear" onClick={clearMeasurements} />}
         <div className="mx-1 h-6 w-px bg-white/20" />
         <ToolButton icon="🐛" label="Report" onClick={handleReportIssue} />
+        <div className="mx-1 h-6 w-px bg-white/20" />
+        <ToolButton icon="🕶️" label="AR" onClick={() => window.open(`/ar/${panelId}`, "_self")} />
       </div>
     </div>
   );

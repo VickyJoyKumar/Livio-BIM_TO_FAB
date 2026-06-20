@@ -287,6 +287,12 @@ export default function PanelDetailPage() {
                       View 3D
                     </a>
                     <a
+                      href={`/ar/${panelId}`}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700"
+                    >
+                      AR
+                    </a>
+                    <a
                       href={model.file_url}
                       target="_blank"
                       rel="noopener noreferrer"
