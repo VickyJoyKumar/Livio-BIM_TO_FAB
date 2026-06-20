@@ -304,6 +304,12 @@ export default function ScannerPage() {
           </div>
         )}
 
+        {decodedText && (
+          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+            Decoded: <span className="font-mono">{decodedText}</span>
+          </div>
+        )}
+
         {lookupError && (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {lookupError}

@@ -132,11 +132,8 @@ export default function PanelDetailPage() {
     setQrLoading(true);
     try {
       const QRCode = (await import("qrcode")).default;
-      // Use the origin of the current page for the URL
-      const baseUrl = window.location.origin;
-      // QR encodes a string that the scanner reads — encode the panel lookup URL
-      const url = `${baseUrl}/api/qr/lookup?code=${encodeURIComponent(panel.qr_code!)}`;
-      const dataUrl = await QRCode.toDataURL(url, {
+      // QR encodes just the panel's unique QR code string (not a URL)
+      const dataUrl = await QRCode.toDataURL(panel.qr_code!, {
         width: 400,
         margin: 2,
         color: { dark: "#1e293b", light: "#ffffff" },
