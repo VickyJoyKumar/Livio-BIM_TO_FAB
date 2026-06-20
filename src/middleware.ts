@@ -25,6 +25,7 @@ export async function middleware(request: NextRequest) {
     },
   );
 
+  // This also refreshes the session if expired
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -39,7 +40,13 @@ export async function middleware(request: NextRequest) {
   if (user && request.nextUrl.pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    // Copy refreshed cookies to the redirect response
+    const refreshedCookies = supabaseResponse.cookies.getAll();
+    for (const c of refreshedCookies) {
+      redirectResponse.cookies.set(c.name, c.value);
+    }
+    return redirectResponse;
   }
 
   // If not authenticated and not on a public path → redirect to login
