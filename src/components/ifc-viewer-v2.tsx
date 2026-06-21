@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import * as OBC from "@thatopen/components";
+import { loadIfcGeometry } from "@/lib/load-ifc";
 
 interface ViewerProps {
   modelUrl: string;
@@ -145,128 +145,22 @@ export default function IfcViewerV2({ modelUrl, format, panelId, panelName, onBa
 
   const loadIfcWithComponents = async () => {
     setProgress(10);
-
-    // Fetch IFC file
     const response = await fetch(modelUrl);
     const buffer = await response.arrayBuffer();
     const uint8 = new Uint8Array(buffer);
     setProgress(30);
 
-    // Setup @thatopen/components
     try {
-      const components = new OBC.Components();
-
-      const worlds = components.get(OBC.Worlds);
-      const world = worlds.create<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>();
-
-      world.scene = new OBC.SimpleScene(components);
-      world.scene.setup();
-      world.scene.three.background = null; // transparent, our own scene handles background
-
-      // We don't use the renderer from components — we use our own Three.js scene
-      // Instead we extract the geometry from the loaded model
-
-      world.camera = new OBC.SimpleCamera(components);
-
-      components.init();
-      setProgress(50);
-
-      // Set up IfcLoader
-      const ifcLoader = components.get(OBC.IfcLoader);
-      ifcLoader.settings.wasm = {
-        path: "/web-ifc.wasm",
-        absolute: true,
-      };
-      ifcLoader.settings.webIfc = { COORDINATE_TO_ORIGIN: true };
-      await ifcLoader.setup({ autoSetWasm: false });
-      setProgress(70);
-
-      // Set up FragmentsManager
-      const fragments = components.get(OBC.FragmentsManager);
-      const workerUrl = await OBC.FragmentsManager.getWorker();
-      fragments.init(workerUrl);
-
-      // Listen for model load
-      const model = await ifcLoader.load(uint8, true, panelName);
-      setProgress(85);
-
-      // Extract geometry from fragments
-      const group = modelGroupRef.current;
-      model.object.updateMatrixWorld(true);
-      model.object.traverse((child: any) => {
-        if (child.isMesh) {
-          const geom = child.geometry.clone();
-          const mat = child.material.clone();
-          mat.side = THREE.DoubleSide;
-          const mesh = new THREE.Mesh(geom, mat);
-          mesh.position.copy(child.position);
-          mesh.quaternion.copy(child.quaternion);
-          mesh.scale.copy(child.scale);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          group.add(mesh);
-        }
-      });
-
-      // Cleanup components
-      components.dispose();
-      setProgress(100);
+      await loadIfcGeometry(uint8, modelGroupRef.current, (pct) => setProgress(pct));
       setLoading(false);
       fitCameraToGroup();
     } catch (err) {
-      // Fallback: use direct web-ifc loading if components fail
-      console.log("Components IFC loading failed, falling back to web-ifc:", (err as Error).message);
-      await loadIfcFallback(uint8);
+      errorRef.current = `IFC load failed: ${(err as Error).message}`;
+      setLoading(false);
     }
   };
 
-  const loadIfcFallback = async (data: Uint8Array) => {
-    const IfcAPI = (await import("web-ifc")).IfcAPI;
-    const ifcApi = new IfcAPI();
-    await ifcApi.Init(() => "/web-ifc.wasm");
-    setProgress(60);
-
-    const modelID = ifcApi.OpenModel(data, { COORDINATE_TO_ORIGIN: true });
-    const flatMeshes = ifcApi.LoadAllGeometry(modelID);
-    const group = modelGroupRef.current;
-    const total = flatMeshes.size();
-
-    for (let i = 0; i < total; i++) {
-      const flatMesh = flatMeshes.get(i);
-      const placedGeometries = flatMesh.geometries;
-      const numGeom = placedGeometries.size();
-      for (let j = 0; j < numGeom; j++) {
-        const placedGeom = placedGeometries.get(j);
-        const ifcGeom = ifcApi.GetGeometry(modelID, placedGeom.geometryExpressID);
-        const pos = ifcApi.GetVertexArray(ifcGeom.GetVertexData(), ifcGeom.GetVertexDataSize());
-        const idx = ifcApi.GetIndexArray(ifcGeom.GetIndexData(), ifcGeom.GetIndexDataSize());
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-        geometry.setIndex(new THREE.BufferAttribute(idx, 1));
-        geometry.computeVertexNormals();
-
-        const color = new THREE.Color(placedGeom.color.x, placedGeom.color.y, placedGeom.color.z);
-        const material = new THREE.MeshStandardMaterial({
-          color,
-          roughness: 0.6,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        if (placedGeom.flatTransformation?.length === 16) {
-          geometry.applyMatrix4(new THREE.Matrix4().fromArray(placedGeom.flatTransformation));
-        }
-        group.add(mesh);
-      }
-    }
-
-    ifcApi.CloseModel(modelID);
-    ifcApi.Dispose();
-    setProgress(100);
-    setLoading(false);
-    fitCameraToGroup();
-  };
+  // --
 
   const loadGltf = async () => {
     setProgress(30);
