@@ -38,8 +38,9 @@ export default function ArPage() {
           setPanel(panelData);
         }
         if (Array.isArray(modelsData) && modelsData.length > 0) {
-          const ifc = modelsData.find((m: ModelData) => m.format === "ifc");
-          setModels(ifc ? [ifc] : [modelsData[0]]);
+                  // Prefer GLB for AR (converted server-side, complete geometry)
+                  const glb = modelsData.find((m: ModelData) => m.format === "glb");
+                  setModels(glb ? [glb] : [modelsData[0]]);
         }
         setLoading(false);
       })

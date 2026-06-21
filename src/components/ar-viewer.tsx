@@ -55,6 +55,10 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       isIOS: isIOSRef.current,
       platform: (navigator as any).platform,
       vendor: navigator.vendor,
+      format,
+      modelUrl: modelUrl.substring(0, 80),
+      meshCount: 0,
+      boundingBox: "",
     });
 
     if (isIOSRef.current) {
@@ -165,6 +169,18 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
     try {
       const scene = await loadModel();
       setStatus("Converting to USDZ...");
+
+      // Compute stats
+      let meshCount = 0;
+      scene.traverse((child) => { if (child instanceof THREE.Mesh) meshCount++; });
+      const box = new THREE.Box3().setFromObject(scene);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      setDebugInfo((prev) => ({
+        ...prev,
+        meshCount,
+        boundingBox: `${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}  at (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`,
+      }));
 
       const exporter = new USDZExporter();
       const usdzBuffer = await exporter.parse(scene);
@@ -430,7 +446,10 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
           <div>xr: {debugInfo.xrValue}</div>
           <div>secure: {String(debugInfo.isSecureContext)}</div>
           <div>iOS: {String(debugInfo.isIOS)}</div>
-          <div className="mt-1 truncate text-white/40">{debugInfo.userAgent}</div>
+          <div>format: {debugInfo.format}</div>
+          <div>meshes: {debugInfo.meshCount}</div>
+          <div>bbox: {debugInfo.boundingBox || "—"}</div>
+          <div className="mt-1 truncate text-white/40">{debugInfo.modelUrl}</div>
         </div>
       )}
     </div>
