@@ -27,13 +27,8 @@ interface IfcJsonData {
 function sceneFromIfcJson(data: IfcJsonData): THREE.Group {
   const group = new THREE.Group();
 
-  // Y-up → Z-up rotation (-90° around X-axis)
-  const yUpToZUp = new THREE.Matrix4().set(
-    1, 0, 0, 0,
-    0, 0, 1, 0,
-    0, -1, 0, 0,
-    0, 0, 0, 1,
-  );
+  // Note: IfcOpenShell outputs Y-up (IFC standard).
+  // Three.js also uses Y-up by default — no coordinate conversion needed.
 
   for (const product of data.products) {
     const { vertices, indices, color } = product;
@@ -45,9 +40,6 @@ function sceneFromIfcJson(data: IfcJsonData): THREE.Group {
       new THREE.Float32BufferAttribute(new Float32Array(vertices), 3),
     );
     geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
-
-    // Apply Y-up → Z-up rotation
-    geometry.applyMatrix4(yUpToZUp);
 
     // Compute normals
     geometry.computeVertexNormals();
