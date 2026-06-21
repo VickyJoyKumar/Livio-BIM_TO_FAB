@@ -94,20 +94,32 @@ export async function POST(request: NextRequest) {
       // Write IFC to temp file
       writeFileSync(tmpIfcPath, buffer);
 
-      // Step 1: Run IfcOpenShell Python script to extract geometry
-      const scriptPath = join(process.cwd(), "scripts/ifc-to-json.py");
-      execSync(
-        `python "${scriptPath}" "${tmpIfcPath}" "${tmpJsonPath}"`,
-        { timeout: 120000, stdio: "pipe" },
-      );
+      try {
+        // Attempt IfcOpenShell (Python) conversion — best quality
+        const scriptPath = join(process.cwd(), "scripts/ifc-to-json.py");
+        execSync(
+          `python "${scriptPath}" "${tmpIfcPath}" "${tmpJsonPath}"`,
+          { timeout: 120000, stdio: "pipe" },
+        );
 
-      // Step 2: Convert JSON to GLB using three-stdlib
-      const { ifcJsonToGlb } = await import("@/lib/ifcopenshell-to-glb");
-      glbBuffer = await ifcJsonToGlb(tmpJsonPath);
+        // Convert JSON to GLB using three-stdlib
+        const { ifcJsonToGlb } = await import("@/lib/ifcopenshell-to-glb");
+        glbBuffer = await ifcJsonToGlb(tmpJsonPath);
 
-      // Get stats from JSON
-      const jsonData = JSON.parse(readFileSync(tmpJsonPath, "utf-8"));
-      stats = jsonData.stats;
+        const jsonData = JSON.parse(readFileSync(tmpJsonPath, "utf-8"));
+        stats = jsonData.stats;
+      } catch {
+        // Fallback: use web-ifc only (no Python needed)
+        // This works everywhere including Vercel serverless
+        const { convertIfcToGlb } = await import("@/lib/convert-ifc-to-glb");
+        const result = await convertIfcToGlb(uint8);
+        glbBuffer = result.glbBuffer;
+        stats = {
+          meshes: result.stats.meshCount,
+          vertices: result.stats.validTris * 3,
+          triangles: result.stats.validTris,
+        };
+      }
     } finally {
       // Clean up temp files
       try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}

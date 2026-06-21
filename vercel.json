@@ -1,0 +1,16 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npx next build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "functions": {
+    "api/convert-ifc/route.ts": {
+      "memory": 512,
+      "maxDuration": 60
+    },
+    "api/panels/[id]/metadata/route.ts": {
+      "memory": 512,
+      "maxDuration": 30
+    }
+  }
+}
