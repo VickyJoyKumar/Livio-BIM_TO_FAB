@@ -5,6 +5,7 @@ import { USDZExporter } from "three-stdlib";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
+import { applyBuildModeOverlay, mergeWithOverlay } from "@/lib/ar-overlay-engine";
 
 interface ArViewerProps {
   modelUrl: string;
@@ -25,6 +26,8 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
   const [placed, setPlaced] = useState(false);
   const [status, setStatus] = useState("Initializing...");
   const [debugInfo, setDebugInfo] = useState<Record<string, any> | null>(null);
+  const [buildMode, setBuildMode] = useState(false);
+  const [buildStats, setBuildStats] = useState<{ studs: number; tracks: number; headers: number; total: number } | null>(null);
 
   const scaleRef = useRef(1);
   const rotationRef = useRef(0);
@@ -168,22 +171,31 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
     setStatus("Loading model for AR...");
     try {
       const scene = await loadModel();
-      setStatus("Converting to USDZ...");
+      setStatus(buildMode ? "Generating framing overlay..." : "Converting to USDZ...");
 
       // Compute stats
       let meshCount = 0;
       scene.traverse((child) => { if (child instanceof THREE.Mesh) meshCount++; });
       const box = new THREE.Box3().setFromObject(scene);
       const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      setDebugInfo((prev) => ({
-        ...prev,
-        meshCount,
-        boundingBox: `${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}  at (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`,
-      }));
+      setDebugInfo((prev) => ({ ...prev, meshCount, boundingBox: `${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}` }));
 
+      // Apply Build Mode overlay if enabled
+      let exportScene: THREE.Group = scene;
+      if (buildMode) {
+        const overlay = applyBuildModeOverlay(scene);
+        exportScene = mergeWithOverlay(scene, overlay);
+        setBuildStats({
+          studs: overlay.stats.studs,
+          tracks: overlay.stats.tracks,
+          headers: overlay.stats.headers,
+          total: overlay.stats.total,
+        });
+      }
+
+      setStatus("Creating AR file...");
       const exporter = new USDZExporter();
-      const usdzBuffer = await exporter.parse(scene);
+      const usdzBuffer = await exporter.parse(exportScene);
 
       const blob = new Blob([usdzBuffer as unknown as ArrayBuffer], { type: "model/vnd.usdz+zip" as string });
       const blobUrl = URL.createObjectURL(blob);
@@ -386,15 +398,46 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
 
       {/* iOS — AR Quick Look button */}
       {arSupported && isIOSRef.current && !loading && (
-        <div className="absolute bottom-32 left-1/2 z-10 -translate-x-1/2">
+        <div className="absolute bottom-32 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-3">
+          {/* Build Mode toggle */}
+          <div className="flex rounded-lg border border-white/20 bg-black/40 p-0.5 backdrop-blur">
+            <button
+              onClick={() => setBuildMode(false)}
+              className={`rounded-md px-4 py-2 text-xs font-semibold transition ${
+                !buildMode ? "bg-blue-600 text-white" : "text-white/60 hover:text-white"
+              }`}
+            >
+              Normal
+            </button>
+            <button
+              onClick={() => setBuildMode(true)}
+              className={`rounded-md px-4 py-2 text-xs font-semibold transition ${
+                buildMode ? "bg-green-600 text-white" : "text-white/60 hover:text-white"
+              }`}
+            >
+              Build Mode
+            </button>
+          </div>
+
           <button onClick={launchArQuickLook}
             className="flex items-center gap-3 rounded-2xl bg-blue-600 px-8 py-4 text-base font-medium text-white shadow-xl transition hover:bg-blue-700 active:scale-[0.97]"
           >
             <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0118.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
             </svg>
-            View in AR
+            {buildMode ? "View Framing Layout" : "View in AR"}
           </button>
+
+          {/* Build stats */}
+          {buildStats && (
+            <div className="rounded-lg bg-black/60 px-4 py-2 text-[11px] text-white/70 backdrop-blur">
+              <span className="text-green-400">{buildStats.studs} studs</span>
+              {" · "}
+              <span className="text-orange-400">{buildStats.tracks + buildStats.headers} tracks</span>
+              {" · "}
+              <span>{buildStats.total} members</span>
+            </div>
+          )}
         </div>
       )}
 
