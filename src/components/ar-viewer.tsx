@@ -24,6 +24,7 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
   const [progress, setProgress] = useState(0);
   const [placed, setPlaced] = useState(false);
   const [status, setStatus] = useState("Initializing...");
+  const [debugInfo, setDebugInfo] = useState<Record<string, any> | null>(null);
 
   const scaleRef = useRef(1);
   const rotationRef = useRef(0);
@@ -44,6 +45,16 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       isIOS: isIOSRef.current,
       hasWebXR: isWebXRRef.current,
       isSecureContext: window.isSecureContext,
+    });
+
+    setDebugInfo({
+      userAgent: ua.substring(0, 120),
+      hasXR: "xr" in navigator,
+      xrValue: String((navigator as any).xr),
+      isSecureContext: window.isSecureContext,
+      isIOS: isIOSRef.current,
+      platform: (navigator as any).platform,
+      vendor: navigator.vendor,
     });
 
     if (isIOSRef.current) {
@@ -408,6 +419,18 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       {placed && (
         <div className="absolute top-4 left-1/2 z-10 -translate-x-1/2 rounded-xl bg-black/50 px-4 py-2 text-center text-xs text-white/80 backdrop-blur">
           ✨ Pinch to scale · Drag to rotate · Tap to reposition
+        </div>
+      )}
+
+      {/* Debug overlay */}
+      {debugInfo && (
+        <div className="absolute bottom-4 left-4 z-20 max-w-xs rounded-lg bg-black/80 p-3 text-[10px] font-mono text-green-400 backdrop-blur">
+          <div className="mb-1 text-[9px] font-bold uppercase tracking-wider text-white/50">AR Diagnostics</div>
+          <div>hasXR: {String(debugInfo.hasXR)}</div>
+          <div>xr: {debugInfo.xrValue}</div>
+          <div>secure: {String(debugInfo.isSecureContext)}</div>
+          <div>iOS: {String(debugInfo.isIOS)}</div>
+          <div className="mt-1 truncate text-white/40">{debugInfo.userAgent}</div>
         </div>
       )}
     </div>
