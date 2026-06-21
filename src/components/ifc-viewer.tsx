@@ -100,14 +100,6 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     const grid = new THREE.GridHelper(20, 20, 0x4a5568, 0x2d3748);
     scene.add(grid);
 
-    // Debug: add a visible test cube to confirm the scene renders
-    const testCube = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xff6600 }),
-    );
-    testCube.position.set(0, 2, 0);
-    scene.add(testCube);
-
     // Hover sphere for measure mode (hidden by default)
     const sphereGeom = new THREE.SphereGeometry(0.08, 12, 12);
     const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.7 });
@@ -200,10 +192,22 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         geometry.computeVertexNormals();
 
         const color = new THREE.Color(placedGeom.color.x, placedGeom.color.y, placedGeom.color.z);
-        const material = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
+        const material = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.6,
+          metalness: 0.1,
+          side: THREE.DoubleSide, // prevents back-face culling issues
+        });
         const threeMesh = new THREE.Mesh(geometry, material);
         threeMesh.castShadow = true;
         threeMesh.receiveShadow = true;
+
+        // Apply the flat transformation matrix to position in world space
+        if (placedGeom.flatTransformation && placedGeom.flatTransformation.length === 16) {
+          const matrix = new THREE.Matrix4().fromArray(placedGeom.flatTransformation);
+          threeMesh.applyMatrix4(matrix);
+        }
+
         group.add(threeMesh);
       }
       setProgress(75 + Math.floor((i / total) * 20));

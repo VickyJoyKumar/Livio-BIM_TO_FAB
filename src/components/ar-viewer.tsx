@@ -98,8 +98,19 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
         geometry.computeVertexNormals();
 
         const color = new THREE.Color(placedGeom.color.x, placedGeom.color.y, placedGeom.color.z);
-        const material = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
+        const material = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.6,
+          metalness: 0.1,
+          side: THREE.DoubleSide,
+        });
         const mesh = new THREE.Mesh(geometry, material);
+
+        // Apply transformation matrix for world-space positioning
+        if (placedGeom.flatTransformation && placedGeom.flatTransformation.length === 16) {
+          mesh.applyMatrix4(new THREE.Matrix4().fromArray(placedGeom.flatTransformation));
+        }
+
         group.add(mesh);
       }
       setProgress(50 + Math.floor((i / total) * 40));
