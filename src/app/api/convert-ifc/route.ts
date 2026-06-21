@@ -72,18 +72,46 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Convert IFC → GLB
+  // Convert IFC → GLB using IfcOpenShell pipeline
   const buffer = Buffer.from(await fileData.arrayBuffer());
   const uint8 = new Uint8Array(buffer);
 
   let glbBuffer: Buffer;
-  let stats: { validTris: number; totalTris: number; meshCount: number };
+  let stats: { meshes: number; vertices: number; triangles: number };
 
   try {
-    const { convertIfcToGlb } = await import("@/lib/convert-ifc-to-glb");
-    const result = await convertIfcToGlb(uint8);
-    glbBuffer = result.glbBuffer;
-    stats = result.stats;
+    const { execSync } = await import("child_process");
+    const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("fs");
+    const { join } = await import("path");
+    const { tmpdir } = await import("os");
+
+    // Create temp directory
+    const tmpDir = mkdtempSync(join(tmpdir(), "ifc-convert-"));
+    const tmpIfcPath = join(tmpDir, "model.ifc");
+    const tmpJsonPath = join(tmpDir, "model.json");
+
+    try {
+      // Write IFC to temp file
+      writeFileSync(tmpIfcPath, buffer);
+
+      // Step 1: Run IfcOpenShell Python script to extract geometry
+      const scriptPath = join(process.cwd(), "scripts/ifc-to-json.py");
+      execSync(
+        `python "${scriptPath}" "${tmpIfcPath}" "${tmpJsonPath}"`,
+        { timeout: 120000, stdio: "pipe" },
+      );
+
+      // Step 2: Convert JSON to GLB using three-stdlib
+      const { ifcJsonToGlb } = await import("@/lib/ifcopenshell-to-glb");
+      glbBuffer = await ifcJsonToGlb(tmpJsonPath);
+
+      // Get stats from JSON
+      const jsonData = JSON.parse(readFileSync(tmpJsonPath, "utf-8"));
+      stats = jsonData.stats;
+    } finally {
+      // Clean up temp files
+      try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
   } catch (err) {
     return NextResponse.json(
       {
