@@ -85,5 +85,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: dbError.message }, { status: 500 });
   }
 
+  // If IFC was uploaded, trigger server-side conversion to GLB
+  if (format === "ifc") {
+    // Fire-and-forget: don't block the upload response
+    // The conversion runs asynchronously — viewer will pick up GLB when ready
+    fetch(
+      `${request.nextUrl.origin}/api/convert-ifc`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: modelRecord.id,
+          panel_id: panelId,
+        }),
+      },
+    ).catch((err) => {
+      console.error("Auto-conversion failed:", err);
+    });
+  }
+
   return NextResponse.json(modelRecord, { status: 201 });
 }

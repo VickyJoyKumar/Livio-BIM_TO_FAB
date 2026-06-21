@@ -40,9 +40,9 @@ export default function ViewerPage() {
         }
         if (Array.isArray(modelsData) && modelsData.length > 0) {
           setModels(modelsData);
-          // Auto-select first model, preferring IFC
-          const ifc = modelsData.find((m: ModelData) => m.format === "ifc");
-          setActiveModel(ifc ?? modelsData[0]);
+          // Auto-select first model, preferring GLB (converted from IFC server-side)
+          const glb = modelsData.find((m: ModelData) => m.format === "glb");
+          setActiveModel(glb ?? modelsData[0]);
         }
         setLoading(false);
       })
