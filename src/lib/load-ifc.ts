@@ -1,5 +1,6 @@
 // Direct web-ifc IFC loader with correct winding order and robust geometry pipeline
 import * as THREE from "three";
+import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
 
 // Fix winding order per-triangle: web-ifc can output mixed-wound triangles
 // Uses best-projection-plane signed area test for 3D robustness
@@ -121,9 +122,11 @@ export async function loadIfcGeometry(
           placedGeom.geometryExpressID,
         );
 
-        const pos = ifcApi.GetVertexArray(
-          ifcGeom.GetVertexData(),
-          ifcGeom.GetVertexDataSize(),
+        const pos = extractWebIfcPositions(
+          ifcApi.GetVertexArray(
+            ifcGeom.GetVertexData(),
+            ifcGeom.GetVertexDataSize(),
+          ),
         );
         const idx = ifcApi.GetIndexArray(
           ifcGeom.GetIndexData(),

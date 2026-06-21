@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
 
 interface ArViewerProps {
   modelUrl: string;
@@ -89,7 +90,8 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       for (let j = 0; j < numGeom; j++) {
         const placedGeom = placedGeometries.get(j);
         const geom = ifcApi.GetGeometry(modelID, placedGeom.geometryExpressID);
-        const pos = ifcApi.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
+        const rawVertexData = ifcApi.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
+        const pos = extractWebIfcPositions(rawVertexData);
         const idx = ifcApi.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
 
         const geometry = new THREE.BufferGeometry();

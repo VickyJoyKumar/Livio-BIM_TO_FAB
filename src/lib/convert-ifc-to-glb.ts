@@ -1,6 +1,6 @@
-// Server-side IFC → GLB conversion using web-ifc + three-stdlib GLTFExporter
 import * as THREE from "three";
 import { GLTFExporter } from "three-stdlib";
+import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
 
 /**
  * Build a Three.js scene from IFC data (same geometry pipeline as load-ifc.ts)
@@ -32,10 +32,11 @@ function buildSceneFromIfc(data: Uint8Array): Promise<THREE.Group> {
               placedGeom.geometryExpressID,
             );
 
-            const pos = ifcApi.GetVertexArray(
+            const rawVertexData = ifcApi.GetVertexArray(
               ifcGeom.GetVertexData(),
               ifcGeom.GetVertexDataSize(),
             );
+            const pos = extractWebIfcPositions(rawVertexData);
             const idx = ifcApi.GetIndexArray(
               ifcGeom.GetIndexData(),
               ifcGeom.GetIndexDataSize(),

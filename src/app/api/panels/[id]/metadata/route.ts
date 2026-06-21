@@ -1,5 +1,23 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { createRequire } from "module";
+import { resolve } from "path";
+import * as THREE from "three";
 import { createClient } from "@/lib/supabase/server";
+import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
+
+const IFC_TYPES = {
+  IFCCOLUMN: 2740243338,
+  IFCWALL: 2676461603,
+  IFCWALLSTANDARDCASE: 895430483,
+  IFCBEAM: 3957062903,
+  IFCSLAB: 1529196076,
+  IFCPLATE: 3493046030,
+  IFCMEMBER: 1073191201,
+  IFCBUILDINGELEMENTPROXY: 1940820710,
+  IFCWINDOW: 3304561284,
+  IFCDOOR: 395920057,
+  IFCFASTENER: 647756555,
+} as const;
 
 export async function GET(
   _request: NextRequest,
@@ -45,9 +63,11 @@ async function extractIfcProperties(fileUrl: string): Promise<Record<string, str
   const buffer = await response.arrayBuffer();
   const uint8 = new Uint8Array(buffer);
 
-  const IfcAPI = (await import("web-ifc")).IfcAPI;
+  const require = createRequire(import.meta.url);
+  const { IfcAPI } = require("web-ifc");
+  const wasmPath = resolve(process.cwd(), "node_modules", "web-ifc", "web-ifc-node.wasm");
   const ifcApi = new IfcAPI();
-  await ifcApi.Init(() => "/web-ifc.wasm");
+  await ifcApi.Init(() => wasmPath);
   const modelID = ifcApi.OpenModel(uint8, {});
 
   const props: Record<string, string> = {};
@@ -100,17 +120,6 @@ async function extractIfcProperties(fileUrl: string): Promise<Record<string, str
 
   // Also try to get element-level properties for major building elements
   try {
-    const IFC_TYPES = {
-      IFCWALL: 2676461603,
-      IFCWALLSTANDARDCASE: 895430483,
-      IFCCOLUMN: 2740243338,
-      IFCBEAM: 3957062903,
-      IFCSLAB: 2698910889,
-      IFCROOF: 3670745774,
-      IFCDOOR: 2492281259,
-      IFCWINDOW: 4187091399,
-    };
-
     for (const [, typeId] of Object.entries(IFC_TYPES)) {
       const lines = ifcApi.GetLineIDsWithType(modelID, typeId);
       const count = lines.size();
@@ -141,8 +150,87 @@ async function extractIfcProperties(fileUrl: string): Promise<Record<string, str
     }
   } catch { /* skip */ }
 
+  if (Object.keys(props).length === 0) {
+    try {
+      Object.assign(props, extractIfcModelSummary(ifcApi, modelID));
+    } catch (err) {
+      console.log("IFC summary extraction error:", (err as Error).message);
+    }
+  }
+
   ifcApi.CloseModel(modelID);
   ifcApi.Dispose();
   props["Model Format"] = "IFC4";
   return props;
+}
+
+function extractIfcModelSummary(ifcApi: any, modelID: number): Record<string, string> {
+  const props: Record<string, string> = {};
+  const typeCounts = Object.entries(IFC_TYPES)
+    .map(([typeName, typeId]) => ({ typeName, count: ifcApi.GetLineIDsWithType(modelID, typeId).size() as number }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count);
+
+  if (typeCounts.length > 0) {
+    const primaryType = typeCounts[0]!;
+    props["Primary Element Type"] = primaryType.typeName.replace(/^IFC/, "");
+    props["Primary Element Count"] = String(primaryType.count);
+    props["Detected Element Types"] = typeCounts
+      .map((entry) => `${entry.typeName.replace(/^IFC/, "")}: ${entry.count}`)
+      .join(", ");
+  }
+
+  const bounds = computeModelBounds(ifcApi, modelID);
+  if (bounds) {
+    const size = bounds.max.clone().sub(bounds.min);
+    props["Approx Width"] = formatMeters(size.x);
+    props["Approx Height"] = formatMeters(size.z);
+    props["Approx Depth"] = formatMeters(size.y);
+    props["Model Center"] = `${bounds.center.x.toFixed(3)}, ${bounds.center.y.toFixed(3)}, ${bounds.center.z.toFixed(3)}`;
+  }
+
+  return props;
+}
+
+function computeModelBounds(ifcApi: any, modelID: number): { min: THREE.Vector3; max: THREE.Vector3; center: THREE.Vector3 } | null {
+  const min = new THREE.Vector3(Infinity, Infinity, Infinity);
+  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  const point = new THREE.Vector3();
+  let hasPoints = false;
+
+  ifcApi.StreamAllMeshes(modelID, (flatMesh: any) => {
+    const placedGeometries = flatMesh.geometries;
+    for (let geomIndex = 0; geomIndex < placedGeometries.size(); geomIndex++) {
+      const placedGeom = placedGeometries.get(geomIndex);
+      const ifcGeometry = ifcApi.GetGeometry(modelID, placedGeom.geometryExpressID);
+      const rawVertexData = ifcApi.GetVertexArray(ifcGeometry.GetVertexData(), ifcGeometry.GetVertexDataSize());
+      const positions = extractWebIfcPositions(rawVertexData);
+      const matrix =
+        placedGeom.flatTransformation && placedGeom.flatTransformation.length === 16
+          ? new THREE.Matrix4().fromArray(placedGeom.flatTransformation)
+          : null;
+
+      for (let index = 0; index < positions.length; index += 3) {
+        point.set(positions[index]!, positions[index + 1]!, positions[index + 2]!);
+        if (matrix) point.applyMatrix4(matrix);
+        min.min(point);
+        max.max(point);
+        hasPoints = true;
+      }
+    }
+  });
+
+  if (!hasPoints) {
+    return null;
+  }
+
+  return {
+    min,
+    max,
+    center: min.clone().add(max).multiplyScalar(0.5),
+  };
+}
+
+function formatMeters(value: number): string {
+  return `${value.toFixed(3)} m`;
 }

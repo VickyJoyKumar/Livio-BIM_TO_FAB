@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import IfcViewer from "@/components/ifc-viewer-v2";
+import IfcViewer from "@/components/ifc-viewer";
 
 interface ModelData {
   id: string;
