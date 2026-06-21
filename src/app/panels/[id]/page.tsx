@@ -5,6 +5,7 @@ import AppHeader from "@/components/app-header";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { format } from "@/lib/format-date";
+import MetadataSection from "@/components/metadata-section";
 
 interface Panel {
   id: string;
@@ -315,6 +316,10 @@ export default function PanelDetailPage() {
             </ul>
           )}
         </div>
+
+        {/* Metadata Section */}
+        <MetadataSection panelId={panelId} />
+
       </main>
     </div>
   );
