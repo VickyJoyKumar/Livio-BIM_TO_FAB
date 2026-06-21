@@ -68,6 +68,9 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
     rendererRef.current = renderer;
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -202,10 +205,10 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
         threeMesh.castShadow = true;
         threeMesh.receiveShadow = true;
 
-        // Apply the flat transformation matrix to position in world space
+        // Apply flat transformation directly to geometry vertices (more reliable)
         if (placedGeom.flatTransformation && placedGeom.flatTransformation.length === 16) {
           const matrix = new THREE.Matrix4().fromArray(placedGeom.flatTransformation);
-          threeMesh.applyMatrix4(matrix);
+          geometry.applyMatrix4(matrix);
         }
 
         group.add(threeMesh);
