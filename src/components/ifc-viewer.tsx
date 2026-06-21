@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { ViewHelper } from "three/examples/jsm/helpers/ViewHelper.js";
 import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
+import { ViewCube } from "@/components/view-cube";
 
 interface IfcViewerProps {
   modelUrl: string;
@@ -34,9 +34,7 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const meshGroupRef = useRef<THREE.Group>(new THREE.Group());
   const animationRef = useRef<number>(0);
-  const lastFrameTimeRef = useRef<number | null>(null);
-  const viewHelperRef = useRef<ViewHelper | null>(null);
-  const viewHelperHandledClickRef = useRef(false);
+  const viewCubeRef = useRef<ViewCube | null>(null);
   const hoverSphereRef = useRef<THREE.Mesh | null>(null);
   const pendingMeasureMarkerRef = useRef<THREE.Mesh | null>(null);
   const previewMeasureObjectsRef = useRef<THREE.Object3D[]>([]);
@@ -182,13 +180,9 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     controls.target.set(0, 0, 0);
     controlsRef.current = controls;
 
-    // View Helper (View Cube)
-    const viewHelper = new ViewHelper(camera, renderer.domElement);
-    viewHelper.setLabels("R", "T", "F");
-    viewHelper.location.top = 16;
-    viewHelper.location.right = 16;
-    viewHelper.location.bottom = 0;
-    viewHelperRef.current = viewHelper;
+    // Custom ViewCube
+    const viewCube = new ViewCube({ camera, controls, domElement: renderer.domElement });
+    viewCubeRef.current = viewCube;
 
     // Lights
     const ambient = new THREE.AmbientLight(0xf4f7fb, 1.05);
@@ -231,17 +225,9 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     // Animation loop
     const animate = () => {
       animationRef.current = requestAnimationFrame(animate);
-      const now = performance.now();
-      const delta = lastFrameTimeRef.current === null ? 0 : (now - lastFrameTimeRef.current) / 1000;
-      lastFrameTimeRef.current = now;
-
       controls.update();
-      if (viewHelper.animating) {
-        viewHelper.update(delta);
-      }
-      renderer.clear();
+      viewCube.update();
       renderer.render(scene, camera);
-      viewHelper.render(renderer);
     };
     animate();
 
@@ -257,11 +243,10 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
 
     return () => {
       cancelAnimationFrame(animationRef.current);
-      lastFrameTimeRef.current = null;
       window.removeEventListener("resize", handleResize);
       clearPendingMeasureMarker();
       clearPreviewMeasurement();
-      viewHelper.dispose();
+      viewCubeRef.current?.dispose();
       controls.dispose();
       renderer.dispose();
       scene.clear();
@@ -467,14 +452,8 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
     });
   }, [clearPendingMeasureMarker, clearPreviewMeasurement]);
 
-  const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    const viewHelper = viewHelperRef.current;
-    if (!viewHelper) return;
-
-    if (viewHelper.handleClick(e.nativeEvent)) {
-      viewHelperHandledClickRef.current = true;
-      setMeasureStatus("View cube applied. Click points on the model to measure from the chosen view.");
-    }
+  const handleCanvasPointerDown = useCallback(() => {
+    // ViewCube handles its own clicks — nothing needed here
   }, []);
 
   // --- Mouse move (hover indicator for measure) ---
@@ -522,11 +501,6 @@ export default function IfcViewer({ modelUrl, format, panelId, panelName, onBack
   // --- Click for measure ---
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (viewHelperHandledClickRef.current) {
-        viewHelperHandledClickRef.current = false;
-        return;
-      }
-
       if (!measureMode || !modelLoaded) return;
       const canvas = canvasRef.current;
       const camera = cameraRef.current;

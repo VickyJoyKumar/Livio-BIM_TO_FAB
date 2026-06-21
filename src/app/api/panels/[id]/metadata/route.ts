@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createRequire } from "module";
 import { resolve } from "path";
 import * as THREE from "three";
 import { createClient } from "@/lib/supabase/server";
@@ -63,8 +62,7 @@ async function extractIfcProperties(fileUrl: string): Promise<Record<string, str
   const buffer = await response.arrayBuffer();
   const uint8 = new Uint8Array(buffer);
 
-  const require = createRequire(import.meta.url);
-  const { IfcAPI } = require("web-ifc");
+  const { IfcAPI } = await import("web-ifc");
   const wasmPath = resolve(process.cwd(), "node_modules", "web-ifc", "web-ifc-node.wasm");
   const ifcApi = new IfcAPI();
   await ifcApi.Init(() => wasmPath);
