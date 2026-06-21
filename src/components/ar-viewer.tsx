@@ -32,32 +32,83 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
   const scaleRef = useRef(1);
   const rotationRef = useRef(0);
 
-  // --- Check AR support ---
+  // --- iOS detection ---
+  const isIOSRef = useRef(false);
+
+  // --- Log runtime info for debugging ---
+  const logRuntimeInfo = useCallback(() => {
+    const info = {
+      userAgent: navigator.userAgent,
+      hasXR: "xr" in navigator,
+      isSecureContext: window.isSecureContext,
+      platform: (navigator as any).platform,
+      vendor: navigator.vendor,
+    };
+    console.log("[AR Debug] Runtime info:", info);
+    return info;
+  }, []);
+
+  // --- Check AR support with iOS fallback ---
   useEffect(() => {
-    if (typeof navigator !== "undefined" && "xr" in navigator) {
-      navigator.xr!.isSessionSupported("immersive-ar").then((supported) => {
-        setArSupported(supported);
-        if (supported) {
+    const info = logRuntimeInfo();
+    isIOSRef.current = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    async function checkArSupport() {
+      try {
+        // Standard WebXR check
+        if (typeof navigator !== "undefined" && "xr" in navigator) {
+          const supported = await navigator.xr!.isSessionSupported("immersive-ar");
+          if (supported) {
+            setArSupported(true);
+            setStatus("Tap 'Start AR' to place the model");
+            setLoading(false);
+            return;
+          }
+          // WebXR says unsupported — but this is common on iOS Safari
+          // even when ARKit is fully functional. Fall through to iOS fallback.
+          console.log("[AR Debug] WebXR reports immersive-ar unsupported, trying iOS fallback");
+        }
+
+        // iOS fallback: requestSession directly without prior check
+        // On iOS Safari, isSessionSupported often returns false but
+        // requestSession("immersive-ar") can still succeed.
+        if (isIOSRef.current) {
+          console.log("[AR Debug] iOS device detected — allowing AR attempt");
+          setArSupported(true);
+          setStatus("Tap 'Start AR' to place the model");
+          setLoading(false);
+          return;
+        }
+
+        // Not iOS and WebXR says unsupported — show error
+        setArSupported(false);
+        setStatus("AR not supported on this device/browser.");
+        setLoading(false);
+      } catch (err) {
+        // Promise rejected — try iOS fallback
+        console.log("[AR Debug] WebXR detection error:", (err as Error).message);
+        if (isIOSRef.current) {
+          setArSupported(true);
           setStatus("Tap 'Start AR' to place the model");
         } else {
-          setStatus("AR not supported on this device/browser. Use Safari on iPhone/iPad.");
+          setArSupported(false);
+          setStatus("AR not supported on this device/browser.");
         }
         setLoading(false);
-      });
-    } else {
-      setArSupported(false);
-      setStatus("WebXR not available. Use Safari on iPhone/iPad.");
-      setLoading(false);
+      }
     }
-  }, []);
+
+    checkArSupport();
+  }, [logRuntimeInfo]);
 
   // --- Load model (convert IFC → geometry for AR) ---
   const loadModel = useCallback(async () => {
     try {
-      if (format === "ifc") {
-        await loadIfcForAr();
-      } else {
+      // Prefer GLB for AR (lighter, no web-ifc needed browser-side)
+      if (format === "glb" || format === "gltf") {
         await loadGltfForAr();
+      } else if (format === "ifc") {
+        await loadIfcForAr();
       }
       modelLoadedRef.current = true;
     } catch (err) {
@@ -77,7 +128,7 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
     setProgress(50);
 
     const uint8 = new Uint8Array(buffer);
-    const modelID = ifcApi.OpenModel(uint8, {});
+    const modelID = ifcApi.OpenModel(uint8, { COORDINATE_TO_ORIGIN: true });
     const flatMeshes = ifcApi.LoadAllGeometry(modelID);
     const total = flatMeshes.size();
     const group = modelGroupRef.current;
@@ -108,7 +159,6 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
         });
         const mesh = new THREE.Mesh(geometry, material);
 
-        // Apply transformation matrix for world-space positioning
         if (placedGeom.flatTransformation && placedGeom.flatTransformation.length === 16) {
           mesh.applyMatrix4(new THREE.Matrix4().fromArray(placedGeom.flatTransformation));
         }
@@ -146,7 +196,7 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
 
   // --- Start AR session ---
   const startAr = useCallback(async () => {
-    if (!arSupported || !canvasRef.current) { return; }
+    if (!canvasRef.current) { return; }
 
     setStatus("Starting AR...");
 
@@ -154,34 +204,25 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // Ambient light for AR (AR provides its own lighting)
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambient);
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(1, 2, 1);
     scene.add(dirLight);
 
-    // Camera (WebXR handles the real camera, we use a perspective camera for virtual objects)
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
     cameraRef.current = camera;
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true, // transparent for AR
-    });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.xr.enabled = true;
     rendererRef.current = renderer;
 
-    // Model group (hidden until placed)
     const modelGroup = modelGroupRef.current;
     modelGroup.visible = false;
     scene.add(modelGroup);
 
-    // Hit-test visuals (reticle)
     const reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.1, 0.12, 32),
       new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
@@ -190,13 +231,16 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
     reticle.visible = false;
     scene.add(reticle);
 
-    // Load model (IFC → geometry)
     setStatus("Loading model...");
     await loadModel();
 
-    // Start AR session
     try {
-      const session = await navigator.xr!.requestSession("immersive-ar", {
+      if (typeof navigator === "undefined" || !("xr" in navigator) || !navigator.xr) {
+        setStatus("AR is not available on this browser.");
+        return;
+      }
+
+      const session = await navigator.xr.requestSession("immersive-ar", {
         requiredFeatures: ["hit-test", "local-floor"],
       });
 
@@ -210,21 +254,15 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       setSessionStarted(true);
       setStatus("Move your device to detect surfaces");
 
-      // Hit test source
       const viewerSpace = await session.requestReferenceSpace("viewer");
       const hitTestSource = await (session as any).requestHitTestSource({ space: viewerSpace });
-
-      // Reference space for model placement
       const referenceSpace = await session.requestReferenceSpace("local-floor");
 
-      // Track if model has been placed
       let modelPlaced = false;
 
-      // Animation loop
       renderer.setAnimationLoop((_timestamp, xrFrame) => {
         if (!xrFrame || !camera || !renderer) return;
 
-        // Update camera
         const pose = xrFrame.getViewerPose(referenceSpace);
         if (pose) {
           camera.matrixAutoUpdate = false;
@@ -232,7 +270,6 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
           camera.updateMatrixWorld(true);
         }
 
-        // Hit testing
         const hitResults = xrFrame.getHitTestResults(hitTestSource);
         if (hitResults.length > 0) {
           const hit = hitResults[0]!;
@@ -246,11 +283,9 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
           reticle.visible = false;
         }
 
-        // Render
         renderer.render(scene, camera);
       });
 
-      // Tap to place
       const sessionCanvas = renderer.domElement;
       const onTap = (e: PointerEvent | TouchEvent) => {
         if (modelPlaced) return;
@@ -265,7 +300,6 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       };
       sessionCanvas.addEventListener("pointerdown", onTap);
 
-      // Pinch to scale
       let lastPinchDist = 0;
       const onTouchMove = (e: TouchEvent) => {
         if (e.touches.length === 2) {
@@ -286,7 +320,6 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
           lastPinchDist = 0;
         }
 
-        // Single finger drag to rotate
         if (e.touches.length === 1 && modelPlaced) {
           rotationRef.current += e.touches[0]!.clientX > (window.innerWidth / 2) ? 0.01 : -0.01;
           modelGroup.rotation.y = rotationRef.current;
@@ -294,12 +327,10 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       };
       sessionCanvas.addEventListener("touchmove", onTouchMove);
 
-      // Cleanup on session end
-      // (cleanup is handled by the session 'end' event listener above)
     } catch (err) {
       setStatus(`AR error: ${(err as Error).message}`);
     }
-  }, [arSupported, loadModel]);
+  }, [loadModel]);
 
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black">
@@ -336,7 +367,7 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
         </div>
       </div>
 
-      {/* Start AR button */}
+      {/* Start AR button — shown when supported OR on iOS (try anyway) */}
       {arSupported && !sessionStarted && !loading && (
         <div className="absolute bottom-32 left-1/2 z-10 -translate-x-1/2">
           <button
@@ -344,20 +375,20 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
             className="flex items-center gap-3 rounded-2xl bg-blue-600 px-8 py-4 text-base font-medium text-white shadow-xl transition hover:bg-blue-700 active:scale-[0.97]"
           >
             <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0118.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
             </svg>
             Start AR
           </button>
         </div>
       )}
 
-      {/* AR unsupported message */}
-      {arSupported === false && !loading && (
+      {/* AR unsupported message — only for non-iOS devices where WebXR truly doesn't exist */}
+      {arSupported === false && !loading && !isIOSRef.current && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
           <div className="max-w-sm rounded-2xl bg-white/10 p-8 text-center backdrop-blur">
             <p className="text-lg font-semibold text-white mb-2">AR Not Available</p>
             <p className="text-sm text-white/70">
-              Open this page in Safari on your iPhone/iPad to use Augmented Reality mode.
+              Augmented Reality is not supported on this device or browser.
             </p>
             <button
               onClick={onBack}
