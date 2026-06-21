@@ -47,6 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
       if (u) fetchProfileRole(u.id);
       setLoading(false);
+    }).catch(() => {
+      setLoading(false);
     });
 
     // Listen for auth state changes
