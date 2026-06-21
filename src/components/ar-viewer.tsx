@@ -235,14 +235,22 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
     await loadModel();
 
     try {
-      if (typeof navigator === "undefined" || !("xr" in navigator) || !navigator.xr) {
-        setStatus("AR is not available on this browser.");
-        return;
+      // On iOS Safari, navigator.xr may not be exposed but requestSession
+      // can still work when called from a secure context.
+      // Skip the feature-detect check and try the session request directly.
+      let session: XRSession;
+      try {
+        session = await (navigator as any).xr?.requestSession("immersive-ar", {
+          requiredFeatures: ["hit-test", "local-floor"],
+        });
+        if (!session) throw new Error("WebXR not available");
+      } catch {
+        // If WebXR fails, try without hit-test (simpler fallback)
+        session = await (navigator as any).xr?.requestSession("immersive-ar", {
+          requiredFeatures: [],
+        });
+        if (!session) throw new Error("WebXR not available");
       }
-
-      const session = await navigator.xr.requestSession("immersive-ar", {
-        requiredFeatures: ["hit-test", "local-floor"],
-      });
 
       session.addEventListener("end", () => {
         setSessionStarted(false);
