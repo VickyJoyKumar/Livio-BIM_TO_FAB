@@ -5,7 +5,7 @@ import { USDZExporter } from "three-stdlib";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { extractWebIfcPositions } from "@/lib/web-ifc-geometry";
-import { applyBuildModeOverlay, mergeWithOverlay } from "@/lib/ar-overlay-engine";
+import { buildBuildModeScene } from "@/lib/ar-overlay-engine";
 
 interface ArViewerProps {
   modelUrl: string;
@@ -180,17 +180,18 @@ export default function ArViewer({ modelUrl, format, panelName, onBack }: ArView
       const size = box.getSize(new THREE.Vector3());
       setDebugInfo((prev) => ({ ...prev, meshCount, boundingBox: `${size.x.toFixed(2)} × ${size.y.toFixed(2)} × ${size.z.toFixed(2)}` }));
 
-      // Apply Build Mode overlay if enabled
+      // Build the export scene (Build Mode replaces everything with overlays)
       let exportScene: THREE.Group = scene;
       if (buildMode) {
-        const overlay = applyBuildModeOverlay(scene);
-        exportScene = mergeWithOverlay(scene, overlay);
+        const overlay = buildBuildModeScene(scene);
+        exportScene = overlay.group;
         setBuildStats({
           studs: overlay.stats.studs,
           tracks: overlay.stats.tracks,
           headers: overlay.stats.headers,
           total: overlay.stats.total,
         });
+        setStatus(`Build Mode: ${overlay.stats.edgeCount} edges, ${overlay.stats.total} members`);
       }
 
       setStatus("Creating AR file...");
